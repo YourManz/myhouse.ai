@@ -1,7 +1,9 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
+  output: 'export',
+  basePath: '/myhouse.ai',
+  images: { unoptimized: true },
   turbopack: {},
 }
 

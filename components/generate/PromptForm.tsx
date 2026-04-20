@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { Sparkles, ChevronRight } from 'lucide-react'
 import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
-import type { FloorPlan } from '@/types/floorplan'
+import { useApiKey } from '@/components/ApiKeyGate'
+import { generateFloorPlan, extract3DSpec, getMaterialPalette } from '@/lib/claude-client'
+import { aiResponseToFloorPlan } from '@/lib/floorplan'
 
 const EXAMPLES = [
   'Craftsman 3BR with open kitchen, master ensuite, attached garage, wraparound porch',
@@ -26,7 +28,8 @@ const STEP_LABELS: Record<Step, string> = {
 export function PromptForm() {
   const [prompt, setPrompt] = useState('')
   const { setFloorPlan, setIsGenerating, isGenerating, generationStep, setGenerationStep } = useEditorStore()
-  const { setSpecPanelOpen, setMaterialPanelOpen } = useUIStore()
+  const { setSpecPanelOpen } = useUIStore()
+  const { apiKey } = useApiKey()
 
   const run = async () => {
     if (!prompt.trim() || isGenerating) return
@@ -35,33 +38,21 @@ export function PromptForm() {
     try {
       // Call 1: floor plan
       setGenerationStep('floorplan')
-      const r1 = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
-      const { floorPlan } = await r1.json() as { floorPlan: FloorPlan }
+      const aiResponse = await generateFloorPlan(prompt, apiKey)
+      const floorPlan = aiResponseToFloorPlan(aiResponse)
+      floorPlan.prompt = prompt
       setFloorPlan(floorPlan)
 
       // Call 2: 3D spec
       setGenerationStep('spec')
-      const r2 = await fetch('/api/extract3d', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ floorPlan }),
-      })
-      const { spec } = await r2.json()
-      setFloorPlan({ ...floorPlan, threeDSpec: spec })
+      const spec = await extract3DSpec(floorPlan, apiKey)
+      const fpWithSpec = { ...floorPlan, threeDSpec: spec }
+      setFloorPlan(fpWithSpec)
 
       // Call 3: materials
       setGenerationStep('materials')
-      const r3 = await fetch('/api/materials', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ floorPlan: { ...floorPlan, threeDSpec: spec } }),
-      })
-      const { palette } = await r3.json()
-      setFloorPlan({ ...floorPlan, threeDSpec: spec, materialPalette: palette })
+      const palette = await getMaterialPalette(fpWithSpec, apiKey)
+      setFloorPlan({ ...fpWithSpec, materialPalette: palette })
 
       setGenerationStep('done')
       setSpecPanelOpen(true)
