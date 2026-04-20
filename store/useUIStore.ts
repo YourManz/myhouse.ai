@@ -17,6 +17,7 @@ interface UIStore {
 
   materialPanelOpen: boolean
   setMaterialPanelOpen: (v: boolean) => void
+  toggleMaterials: () => void
 
   chatOpen: boolean
   setChatOpen: (v: boolean) => void
@@ -42,6 +43,7 @@ export const useUIStore = create<UIStore>((set) => ({
 
   materialPanelOpen: false,
   setMaterialPanelOpen: (v) => set({ materialPanelOpen: v }),
+  toggleMaterials: () => set(s => ({ materialPanelOpen: !s.materialPanelOpen })),
 
   chatOpen: false,
   setChatOpen: (v) => set({ chatOpen: v }),
