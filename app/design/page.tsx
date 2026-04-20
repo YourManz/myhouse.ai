@@ -5,9 +5,12 @@ import { MessageSquare, Clock } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { EditorToolbar } from '@/components/editor/EditorToolbar'
 import { FloorSelector } from '@/components/editor/FloorSelector'
+import { RoomPanel } from '@/components/editor/RoomPanel'
+import { WallPanel } from '@/components/editor/WallPanel'
 import { PromptForm } from '@/components/generate/PromptForm'
 import { DesignChat } from '@/components/chat/DesignChat'
 import { HistorySidebar } from '@/components/history/HistorySidebar'
+import { SpecReviewPanel } from '@/components/specreview/SpecReviewPanel'
 import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
 
@@ -20,7 +23,7 @@ export default function DesignPage() {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
 
-  const { floorPlan, activeFloor, activeFloorId, setActiveFloorId } = useEditorStore()
+  const { floorPlan, activeFloor, activeFloorId, setActiveFloorId, selectedIds, selectionType } = useEditorStore()
   const { viewMode, chatOpen, toggleChat, historyOpen, toggleHistory } = useUIStore()
 
   useEffect(() => {
@@ -34,14 +37,17 @@ export default function DesignPage() {
     return () => obs.disconnect()
   }, [])
 
-  const floor = activeFloor()
+  // Determine what to show in the right panel
+  const hasSelection = selectedIds.length > 0
+  const showRoomPanel = hasSelection && selectionType === 'room' && !chatOpen
+  const showWallPanel = hasSelection && selectionType === 'wall' && !chatOpen
+  const showSpecPanel = !hasSelection && !chatOpen && !!floorPlan?.threeDSpec
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden">
       <Header />
       <PromptForm />
 
-      {/* Toolbar row + panel toggle buttons */}
       <div className="flex items-center border-b border-slate-800 bg-slate-950 shrink-0">
         <div className="flex-1">
           <EditorToolbar />
@@ -51,9 +57,7 @@ export default function DesignPage() {
             onClick={toggleHistory}
             title="Design history"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-mono transition-colors ${
-              historyOpen
-                ? 'bg-slate-700 text-slate-200'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+              historyOpen ? 'bg-slate-700 text-slate-200' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
             }`}
           >
             <Clock size={13} />
@@ -93,13 +97,10 @@ export default function DesignPage() {
           </div>
         )}
 
-        {/* Main canvas area */}
+        {/* Main canvas */}
         <div ref={canvasRef} className="flex-1 relative overflow-hidden bg-slate-950">
           {viewMode === '2d' || viewMode === 'split' ? (
-            <div
-              className="absolute inset-0"
-              style={viewMode === 'split' ? { right: '50%' } : {}}
-            >
+            <div className="absolute inset-0" style={viewMode === 'split' ? { right: '50%' } : {}}>
               <FloorPlanEditor
                 width={viewMode === 'split' ? canvasSize.width / 2 : canvasSize.width}
                 height={canvasSize.height}
@@ -154,79 +155,16 @@ export default function DesignPage() {
           )}
         </div>
 
-        {/* Right panels — spec/materials info */}
-        {floorPlan?.threeDSpec && !chatOpen && (
-          <div className="w-72 shrink-0 border-l border-slate-800 bg-slate-950 overflow-y-auto">
-            <div className="p-4">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">3D Spec</h3>
-
-              <div className="mb-4">
-                <div className="text-xs text-slate-500 mb-1">Roof</div>
-                <div className="text-sm text-slate-200 font-medium capitalize">
-                  {floorPlan.threeDSpec.roof.type} — {floorPlan.threeDSpec.roof.pitch}:12 pitch
-                </div>
-                <div className="text-xs text-slate-500">{floorPlan.threeDSpec.roof.overhang}ft overhang</div>
-              </div>
-
-              {floorPlan.threeDSpec.cutouts.length > 0 && (
-                <div className="mb-4">
-                  <div className="text-xs text-slate-500 mb-2">AI Suggestions</div>
-                  <div className="flex flex-col gap-2">
-                    {floorPlan.threeDSpec.cutouts.map(cut => (
-                      <div key={cut.id} className="p-2 rounded bg-slate-900 border border-slate-800">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-slate-300 capitalize">
-                            {cut.type.replace(/-/g, ' ')}
-                          </span>
-                          <span className="text-xs text-blue-400">Floor {cut.targetFloor}</span>
-                        </div>
-                        <p className="text-xs text-slate-500">{cut.rationale}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {floorPlan.threeDSpec.ceilingOverrides.length > 0 && (
-                <div className="mb-4">
-                  <div className="text-xs text-slate-500 mb-2">Ceiling Overrides</div>
-                  <div className="flex flex-col gap-1">
-                    {floorPlan.threeDSpec.ceilingOverrides.map((co, i) => (
-                      <div key={i} className="text-xs text-slate-400">
-                        <span className="capitalize">{co.type}</span>
-                        {co.peakHeight && ` → ${co.peakHeight / 12}ft peak`}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-900/40 text-xs text-blue-300">
-                {floorPlan.threeDSpec.rationale}
-              </div>
-
-              {floorPlan.materialPalette && (
-                <div className="mt-4">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Materials</h3>
-                  <div className="flex flex-col gap-2">
-                    {floorPlan.materialPalette.surfaces.slice(0, 6).map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <div
-                          className="w-4 h-4 rounded shrink-0 border border-slate-700"
-                          style={{ backgroundColor: s.texture.color }}
-                        />
-                        <div className="text-slate-400 capitalize">{s.target.replace(/-/g, ' ')}</div>
-                        <div className="text-slate-600 truncate">{s.texture.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+        {/* Right panel — context-sensitive */}
+        {(showRoomPanel || showWallPanel || showSpecPanel) && (
+          <div className="w-72 shrink-0 border-l border-slate-800 bg-slate-950 overflow-hidden flex flex-col">
+            {showRoomPanel && <RoomPanel />}
+            {showWallPanel && <WallPanel />}
+            {showSpecPanel && <SpecReviewPanel />}
           </div>
         )}
 
-        {/* Chat panel (right) */}
+        {/* Chat panel */}
         {chatOpen && (
           <div className="w-80 shrink-0 border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-800 shrink-0 flex items-center gap-2">

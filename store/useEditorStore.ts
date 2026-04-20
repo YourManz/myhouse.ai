@@ -1,6 +1,6 @@
 'use client'
 import { create } from 'zustand'
-import type { FloorPlan, Floor, Room, WallSegment, PlacedElement, ToolMode } from '@/types/floorplan'
+import type { FloorPlan, Floor, Room, WallSegment, PlacedElement, ToolMode, RoomType, WallMaterial } from '@/types/floorplan'
 
 interface CanvasTransform {
   x: number
@@ -21,11 +21,18 @@ interface EditorStore {
   setActiveTool: (tool: ToolMode) => void
 
   selectedIds: string[]
-  setSelectedIds: (ids: string[]) => void
+  selectionType: 'room' | 'wall' | null
+  setSelectedIds: (ids: string[], type?: 'room' | 'wall') => void
   clearSelection: () => void
 
   canvasTransform: CanvasTransform
   setCanvasTransform: (t: Partial<CanvasTransform>) => void
+
+  // Mutations
+  updateRoom: (roomId: string, patch: Partial<Pick<Room, 'type' | 'label'>>) => void
+  deleteRoom: (roomId: string) => void
+  updateWall: (wallId: string, patch: Partial<Pick<WallSegment, 'thickness' | 'height' | 'material' | 'isExterior'>>) => void
+  moveVertex: (floorId: string, vertexIdx: number, x: number, y: number) => void
 
   // Undo/redo
   history: FloorPlan[]
@@ -55,8 +62,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   updateFloorPlan: (updater) => {
     const current = get().floorPlan
     if (!current) return
-    const next = updater(current)
-    set({ floorPlan: next })
+    set({ floorPlan: updater(current) })
   },
 
   activeFloorId: null,
@@ -71,12 +77,68 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setActiveTool: (tool) => set({ activeTool: tool }),
 
   selectedIds: [],
-  setSelectedIds: (ids) => set({ selectedIds: ids }),
-  clearSelection: () => set({ selectedIds: [] }),
+  selectionType: null,
+  setSelectedIds: (ids, type) => set({ selectedIds: ids, selectionType: type ?? null }),
+  clearSelection: () => set({ selectedIds: [], selectionType: null }),
 
   canvasTransform: { x: 0, y: 0, scale: 1 },
   setCanvasTransform: (t) =>
     set(s => ({ canvasTransform: { ...s.canvasTransform, ...t } })),
+
+  updateRoom: (roomId, patch) => {
+    get().pushHistory()
+    get().updateFloorPlan(fp => ({
+      ...fp,
+      floors: fp.floors.map(f => ({
+        ...f,
+        rooms: f.rooms.map(r => r.id === roomId ? { ...r, ...patch } : r),
+      })),
+    }))
+  },
+
+  deleteRoom: (roomId) => {
+    get().pushHistory()
+    get().updateFloorPlan(fp => ({
+      ...fp,
+      floors: fp.floors.map(f => {
+        const room = f.rooms.find(r => r.id === roomId)
+        if (!room) return f
+        const roomVertexSet = new Set(room.vertices)
+        const remainingRooms = f.rooms.filter(r => r.id !== roomId)
+        const usedVertices = new Set(remainingRooms.flatMap(r => r.vertices))
+        const orphanVertices = [...roomVertexSet].filter(vi => !usedVertices.has(vi))
+        const orphanSet = new Set(orphanVertices)
+        const remainingWalls = f.walls.filter(w =>
+          !(orphanSet.has(w.startVertex) && orphanSet.has(w.endVertex))
+        )
+        return { ...f, rooms: remainingRooms, walls: remainingWalls }
+      }),
+    }))
+    get().clearSelection()
+  },
+
+  updateWall: (wallId, patch) => {
+    get().pushHistory()
+    get().updateFloorPlan(fp => ({
+      ...fp,
+      floors: fp.floors.map(f => ({
+        ...f,
+        walls: f.walls.map(w => w.id === wallId ? { ...w, ...patch } : w),
+      })),
+    }))
+  },
+
+  moveVertex: (floorId, vertexIdx, x, y) => {
+    get().updateFloorPlan(fp => ({
+      ...fp,
+      floors: fp.floors.map(f => {
+        if (f.id !== floorId) return f
+        const newVerts = [...f.vertices]
+        newVerts[vertexIdx] = { x, y }
+        return { ...f, vertices: newVerts }
+      }),
+    }))
+  },
 
   history: [],
   historyIndex: -1,
