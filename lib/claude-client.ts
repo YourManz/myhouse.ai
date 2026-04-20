@@ -137,6 +137,46 @@ Respond with this exact JSON shape:
   }]
 }`
 
+const SUGGEST_SYSTEM = `You are myhouse.ai. Given lifestyle preferences, generate 3 distinct house prompt descriptions.
+Each should be a single rich sentence a user would type into a house design tool — specific, evocative, architectural.
+Vary the suggestions meaningfully (different styles, layouts, or features).
+Respond with ONLY valid JSON — no markdown, no code fences.
+
+Respond with this exact JSON shape:
+{
+  "suggestions": [
+    { "label": string, "prompt": string },
+    { "label": string, "prompt": string },
+    { "label": string, "prompt": string }
+  ]
+}`
+
+export interface PromptSuggestion {
+  label: string
+  prompt: string
+}
+
+export async function suggestPrompts(
+  lifestyle: Record<string, string>,
+  apiKey: string,
+): Promise<PromptSuggestion[]> {
+  const client = getClient(apiKey)
+  const content = Object.entries(lifestyle)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    system: SUGGEST_SYSTEM,
+    messages: [{ role: 'user', content }],
+  })
+  const text = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+  const parsed = JSON.parse(clean) as { suggestions: PromptSuggestion[] }
+  return parsed.suggestions
+}
+
 const CLARIFY_SYSTEM = `You are myhouse.ai. Analyze the user's house description prompt and decide if key details are missing.
 Return 0–3 clarifying questions ONLY for genuinely missing info. If the prompt is already detailed, return an empty array.
 Respond with ONLY valid JSON — no markdown, no code fences.

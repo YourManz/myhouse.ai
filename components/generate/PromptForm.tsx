@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback } from 'react'
-import { Sparkles, ChevronRight, HelpCircle } from 'lucide-react'
+import { Sparkles, ChevronRight, HelpCircle, Wand2 } from 'lucide-react'
 import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
 import { useApiKey } from '@/components/ApiKeyGate'
@@ -9,6 +9,7 @@ import type { ClarifyQuestion } from '@/lib/claude-client'
 import { aiResponseToFloorPlan } from '@/lib/floorplan'
 import { GenerationOverlay } from './GenerationOverlay'
 import { ClarificationPanel } from './ClarificationPanel'
+import { SuggestionPanel } from './SuggestionPanel'
 import type { GenStep } from './GenerationOverlay'
 
 const EXAMPLES = [
@@ -23,6 +24,7 @@ export function PromptForm() {
   const [prompt, setPrompt] = useState('')
   const [genStep, setGenStep] = useState<GenStep>('idle')
   const [streamText, setStreamText] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [isClarifying, setIsClarifying] = useState(false)
   const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[]>([])
   const [clarifyAnswers, setClarifyAnswers] = useState<Record<string, string>>({})
@@ -120,6 +122,13 @@ export function PromptForm() {
     <>
       <GenerationOverlay step={genStep} streamingText={streamText} />
 
+      {showSuggestions && (
+        <SuggestionPanel
+          onSelect={p => { setPrompt(p); setClarifyQuestions([]); setClarifyAnswers({}) }}
+          onClose={() => setShowSuggestions(false)}
+        />
+      )}
+
       <div className="flex flex-col gap-3 p-4 border-b border-slate-800 bg-slate-950">
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -134,6 +143,21 @@ export function PromptForm() {
           </div>
 
           <div className="flex flex-col gap-1.5 self-stretch">
+            {/* Inspire / suggestion button */}
+            <button
+              onClick={() => { setShowSuggestions(v => !v); setClarifyQuestions([]); setClarifyAnswers({}) }}
+              disabled={busy}
+              title="Answer a few lifestyle questions and get AI-crafted prompt suggestions"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                showSuggestions
+                  ? 'bg-violet-700/25 border-violet-500/50 text-violet-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              <Wand2 size={13} />
+              Inspire
+            </button>
+
             {/* Clarify button */}
             <button
               onClick={handleClarify}
