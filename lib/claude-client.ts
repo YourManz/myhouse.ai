@@ -237,15 +237,8 @@ async function streamCall<T>(
   onChunk?: ChunkCallback,
 ): Promise<T> {
   if (onChunk) {
-    const stream = client.messages.stream({ ...params, stream: true } as Anthropic.MessageStreamParams)
-    for await (const event of stream) {
-      if (
-        event.type === 'content_block_delta' &&
-        event.delta.type === 'text_delta'
-      ) {
-        onChunk(event.delta.text)
-      }
-    }
+    const stream = client.messages.stream(params as Anthropic.MessageStreamParams)
+    stream.on('text', (text) => onChunk(text))
     const msg = await stream.finalMessage()
     const text = msg.content[0].type === 'text' ? msg.content[0].text : ''
     const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
@@ -335,14 +328,9 @@ ${JSON.stringify(floorPlan, null, 2)}`
       max_tokens: 4096,
       system: systemWithContext,
       messages,
-      stream: true,
     } as Anthropic.MessageStreamParams)
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text
-        onChunk(event.delta.text)
-      }
-    }
+    stream.on('text', (text) => { fullText += text; onChunk(text) })
+    await stream.finalMessage()
   } else {
     const msg = await client.messages.create({
       model: 'claude-sonnet-4-6',
