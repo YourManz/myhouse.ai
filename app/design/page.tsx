@@ -1,14 +1,16 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { MessageSquare, Clock } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { EditorToolbar } from '@/components/editor/EditorToolbar'
 import { FloorSelector } from '@/components/editor/FloorSelector'
 import { PromptForm } from '@/components/generate/PromptForm'
+import { DesignChat } from '@/components/chat/DesignChat'
+import { HistorySidebar } from '@/components/history/HistorySidebar'
 import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
 
-// Load canvas editor client-side only (Konva requires browser)
 const FloorPlanEditor = dynamic(
   () => import('@/components/editor/FloorPlanEditor').then(m => ({ default: m.FloorPlanEditor })),
   { ssr: false }
@@ -19,7 +21,7 @@ export default function DesignPage() {
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
 
   const { floorPlan, activeFloor, activeFloorId, setActiveFloorId } = useEditorStore()
-  const { viewMode } = useUIStore()
+  const { viewMode, chatOpen, toggleChat, historyOpen, toggleHistory } = useUIStore()
 
   useEffect(() => {
     const el = canvasRef.current
@@ -38,10 +40,49 @@ export default function DesignPage() {
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden">
       <Header />
       <PromptForm />
-      <EditorToolbar />
+
+      {/* Toolbar row + panel toggle buttons */}
+      <div className="flex items-center border-b border-slate-800 bg-slate-950 shrink-0">
+        <div className="flex-1">
+          <EditorToolbar />
+        </div>
+        <div className="flex items-center gap-1 px-3">
+          <button
+            onClick={toggleHistory}
+            title="Design history"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-mono transition-colors ${
+              historyOpen
+                ? 'bg-slate-700 text-slate-200'
+                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Clock size={13} />
+            History
+          </button>
+          <button
+            onClick={toggleChat}
+            title="Design assistant"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-mono transition-colors ${
+              chatOpen
+                ? 'bg-blue-600/20 border border-blue-500/30 text-blue-300'
+                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <MessageSquare size={13} />
+            Chat
+          </button>
+        </div>
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Floor selector sidebar */}
+        {/* History sidebar (left) */}
+        {historyOpen && (
+          <div className="w-56 shrink-0 border-r border-slate-800 bg-slate-950 overflow-hidden flex flex-col">
+            <HistorySidebar />
+          </div>
+        )}
+
+        {/* Floor selector */}
         {floorPlan && (
           <div className="shrink-0 border-r border-slate-800 bg-slate-950">
             <FloorSelector
@@ -113,13 +154,12 @@ export default function DesignPage() {
           )}
         </div>
 
-        {/* Right panel — spec/materials info */}
-        {floorPlan?.threeDSpec && (
+        {/* Right panels — spec/materials info */}
+        {floorPlan?.threeDSpec && !chatOpen && (
           <div className="w-72 shrink-0 border-l border-slate-800 bg-slate-950 overflow-y-auto">
             <div className="p-4">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">3D Spec</h3>
 
-              {/* Roof */}
               <div className="mb-4">
                 <div className="text-xs text-slate-500 mb-1">Roof</div>
                 <div className="text-sm text-slate-200 font-medium capitalize">
@@ -128,7 +168,6 @@ export default function DesignPage() {
                 <div className="text-xs text-slate-500">{floorPlan.threeDSpec.roof.overhang}ft overhang</div>
               </div>
 
-              {/* Cutouts */}
               {floorPlan.threeDSpec.cutouts.length > 0 && (
                 <div className="mb-4">
                   <div className="text-xs text-slate-500 mb-2">AI Suggestions</div>
@@ -148,7 +187,6 @@ export default function DesignPage() {
                 </div>
               )}
 
-              {/* Ceiling overrides */}
               {floorPlan.threeDSpec.ceilingOverrides.length > 0 && (
                 <div className="mb-4">
                   <div className="text-xs text-slate-500 mb-2">Ceiling Overrides</div>
@@ -163,12 +201,10 @@ export default function DesignPage() {
                 </div>
               )}
 
-              {/* Rationale */}
               <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-900/40 text-xs text-blue-300">
                 {floorPlan.threeDSpec.rationale}
               </div>
 
-              {/* Material palette preview */}
               {floorPlan.materialPalette && (
                 <div className="mt-4">
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Materials</h3>
@@ -187,6 +223,17 @@ export default function DesignPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Chat panel (right) */}
+        {chatOpen && (
+          <div className="w-80 shrink-0 border-l border-slate-800 bg-slate-950 flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-800 shrink-0 flex items-center gap-2">
+              <MessageSquare size={13} className="text-blue-400" />
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Design Assistant</span>
+            </div>
+            <DesignChat />
           </div>
         )}
       </div>

@@ -17,6 +17,14 @@ interface UIStore {
 
   materialPanelOpen: boolean
   setMaterialPanelOpen: (v: boolean) => void
+
+  chatOpen: boolean
+  setChatOpen: (v: boolean) => void
+  toggleChat: () => void
+
+  historyOpen: boolean
+  setHistoryOpen: (v: boolean) => void
+  toggleHistory: () => void
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -34,4 +42,12 @@ export const useUIStore = create<UIStore>((set) => ({
 
   materialPanelOpen: false,
   setMaterialPanelOpen: (v) => set({ materialPanelOpen: v }),
+
+  chatOpen: false,
+  setChatOpen: (v) => set({ chatOpen: v }),
+  toggleChat: () => set(s => ({ chatOpen: !s.chatOpen })),
+
+  historyOpen: false,
+  setHistoryOpen: (v) => set({ historyOpen: v }),
+  toggleHistory: () => set(s => ({ historyOpen: !s.historyOpen })),
 }))

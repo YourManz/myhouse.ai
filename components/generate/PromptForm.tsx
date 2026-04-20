@@ -5,6 +5,7 @@ import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
 import { useApiKey } from '@/components/ApiKeyGate'
 import { generateFloorPlan, extract3DSpec, getMaterialPalette, clarifyPrompt } from '@/lib/claude-client'
+import { saveDesign } from '@/lib/db'
 import type { ClarifyQuestion } from '@/lib/claude-client'
 import { aiResponseToFloorPlan } from '@/lib/floorplan'
 import { GenerationOverlay } from './GenerationOverlay'
@@ -92,6 +93,7 @@ export function PromptForm() {
       setSpecPanelOpen(true)
       setClarifyQuestions([])
       setClarifyAnswers({})
+      saveDesign({ ...fpWithSpec, materialPalette: palette }).catch(() => {})
     } catch (err) {
       console.error(err)
     } finally {

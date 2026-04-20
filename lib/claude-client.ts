@@ -291,6 +291,79 @@ Floors: ${JSON.stringify(floorPlan.floors.map(f => ({ level: f.level, label: f.l
   }, onChunk)
 }
 
+const CHAT_SYSTEM = `You are myhouse.ai's design assistant. The user is viewing a floor plan they generated.
+Answer questions about the design clearly and concisely.
+
+When the user asks to MODIFY the floor plan (resize rooms, add rooms, change layout, etc.):
+1. Explain what you're changing and why in plain text
+2. Then wrap the COMPLETE modified floor plan JSON in [EDIT] and [/EDIT] tags
+
+Important edit rules:
+- Return the ENTIRE FloorPlan JSON (all floors, rooms, walls, elements)
+- Keep all unchanged data exactly as-is
+- Only modify what the user asked for
+- Maintain room adjacency rules (touching rooms must share exact edges)
+
+If the user is just asking a question (area, style, features), respond with plain text only — no [EDIT] tags.`
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatResult {
+  text: string
+  proposedFloorPlanJson?: string
+}
+
+export async function chatWithDesign(
+  messages: ChatMessage[],
+  floorPlan: object,
+  apiKey: string,
+  onChunk?: ChunkCallback,
+): Promise<ChatResult> {
+  const client = getClient(apiKey)
+  const systemWithContext = `${CHAT_SYSTEM}
+
+Current floor plan JSON:
+${JSON.stringify(floorPlan, null, 2)}`
+
+  let fullText = ''
+  if (onChunk) {
+    const stream = client.messages.stream({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: systemWithContext,
+      messages,
+      stream: true,
+    } as Anthropic.MessageStreamParams)
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        onChunk(event.delta.text)
+      }
+    }
+  } else {
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: systemWithContext,
+      messages,
+    })
+    fullText = msg.content[0].type === 'text' ? msg.content[0].text : ''
+  }
+
+  // Extract [EDIT]...[/EDIT] block if present
+  const editMatch = fullText.match(/\[EDIT\]([\s\S]*?)\[\/EDIT\]/)
+  if (editMatch) {
+    const clean = editMatch[1].replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+    const displayText = fullText.replace(/\[EDIT\][\s\S]*?\[\/EDIT\]/, '').trim()
+    return { text: displayText, proposedFloorPlanJson: clean }
+  }
+
+  return { text: fullText }
+}
+
 export async function getMaterialPalette(
   floorPlan: FloorPlan,
   apiKey: string,
