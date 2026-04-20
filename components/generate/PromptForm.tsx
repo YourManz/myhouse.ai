@@ -1,12 +1,14 @@
 'use client'
 import { useState, useCallback } from 'react'
-import { Sparkles, ChevronRight } from 'lucide-react'
+import { Sparkles, ChevronRight, HelpCircle } from 'lucide-react'
 import { useEditorStore } from '@/store/useEditorStore'
 import { useUIStore } from '@/store/useUIStore'
 import { useApiKey } from '@/components/ApiKeyGate'
-import { generateFloorPlan, extract3DSpec, getMaterialPalette } from '@/lib/claude-client'
+import { generateFloorPlan, extract3DSpec, getMaterialPalette, clarifyPrompt } from '@/lib/claude-client'
+import type { ClarifyQuestion } from '@/lib/claude-client'
 import { aiResponseToFloorPlan } from '@/lib/floorplan'
 import { GenerationOverlay } from './GenerationOverlay'
+import { ClarificationPanel } from './ClarificationPanel'
 import type { GenStep } from './GenerationOverlay'
 
 const EXAMPLES = [
@@ -21,6 +23,9 @@ export function PromptForm() {
   const [prompt, setPrompt] = useState('')
   const [genStep, setGenStep] = useState<GenStep>('idle')
   const [streamText, setStreamText] = useState('')
+  const [isClarifying, setIsClarifying] = useState(false)
+  const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[]>([])
+  const [clarifyAnswers, setClarifyAnswers] = useState<Record<string, string>>({})
   const { setFloorPlan, isGenerating, setIsGenerating } = useEditorStore()
   const { setSpecPanelOpen } = useUIStore()
   const { apiKey } = useApiKey()
@@ -29,27 +34,53 @@ export function PromptForm() {
     setStreamText(prev => prev + chunk)
   }, [])
 
-  const run = async () => {
-    if (!prompt.trim() || isGenerating) return
+  function buildEnrichedPrompt() {
+    if (clarifyQuestions.length === 0) return prompt
+    const answered = clarifyQuestions
+      .filter(q => clarifyAnswers[q.id]?.trim())
+      .map(q => `${q.question}: ${clarifyAnswers[q.id]}`)
+    if (answered.length === 0) return prompt
+    return `${prompt}\n\nAdditional details:\n${answered.join('\n')}`
+  }
+
+  const handleClarify = async () => {
+    if (!prompt.trim() || isClarifying || isGenerating) return
+    setIsClarifying(true)
+    setClarifyQuestions([])
+    setClarifyAnswers({})
+    try {
+      const result = await clarifyPrompt(prompt, apiKey)
+      if (result.needsClarification && result.questions.length > 0) {
+        setClarifyQuestions(result.questions)
+      } else {
+        // Nothing to clarify — go straight to generation
+        await runGeneration(prompt)
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsClarifying(false)
+    }
+  }
+
+  const runGeneration = async (enrichedPrompt: string) => {
+    if (isGenerating) return
     setIsGenerating(true)
     setStreamText('')
 
     try {
-      // Call 1: floor plan — blueprint animation
       setGenStep('floorplan')
-      const aiResponse = await generateFloorPlan(prompt, apiKey, appendChunk)
+      const aiResponse = await generateFloorPlan(enrichedPrompt, apiKey, appendChunk)
       const floorPlan = aiResponseToFloorPlan(aiResponse)
-      floorPlan.prompt = prompt
+      floorPlan.prompt = enrichedPrompt
       setFloorPlan(floorPlan)
 
-      // Call 2: 3D spec — house building animation
       setGenStep('spec')
       setStreamText('')
       const spec = await extract3DSpec(floorPlan, apiKey, appendChunk)
       const fpWithSpec = { ...floorPlan, threeDSpec: spec }
       setFloorPlan(fpWithSpec)
 
-      // Call 3: materials — painting animation
       setGenStep('materials')
       setStreamText('')
       const palette = await getMaterialPalette(fpWithSpec, apiKey, appendChunk)
@@ -57,6 +88,8 @@ export function PromptForm() {
 
       setGenStep('done')
       setSpecPanelOpen(true)
+      setClarifyQuestions([])
+      setClarifyAnswers({})
     } catch (err) {
       console.error(err)
     } finally {
@@ -64,6 +97,24 @@ export function PromptForm() {
       setTimeout(() => { setGenStep('idle'); setStreamText('') }, 800)
     }
   }
+
+  const handleGenerate = () => {
+    if (!prompt.trim() || isGenerating) return
+    runGeneration(buildEnrichedPrompt())
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (clarifyQuestions.length === 0) {
+        handleClarify()
+      } else {
+        handleGenerate()
+      }
+    }
+  }
+
+  const busy = isGenerating || isClarifying
 
   return (
     <>
@@ -74,31 +125,48 @@ export function PromptForm() {
           <div className="relative flex-1">
             <textarea
               value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run() } }}
-              placeholder="Describe your dream house... (e.g. craftsman 3BR open kitchen master ensuite)"
+              onChange={e => { setPrompt(e.target.value); if (clarifyQuestions.length > 0) { setClarifyQuestions([]); setClarifyAnswers({}) } }}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe your dream house… (e.g. craftsman 3BR open kitchen master ensuite)"
               rows={2}
               className="w-full resize-none rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
             />
           </div>
-          <button
-            onClick={run}
-            disabled={isGenerating || !prompt.trim()}
-            className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors self-stretch"
-          >
-            {isGenerating
-              ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              : <Sparkles size={15} />}
-            Generate
-          </button>
+
+          <div className="flex flex-col gap-1.5 self-stretch">
+            {/* Clarify button */}
+            <button
+              onClick={handleClarify}
+              disabled={busy || !prompt.trim() || clarifyQuestions.length > 0}
+              title="Ask Claude a few quick questions to refine your prompt"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-slate-200 text-xs font-medium transition-colors border border-slate-700"
+            >
+              {isClarifying
+                ? <span className="w-3 h-3 border border-slate-400/40 border-t-slate-400 rounded-full animate-spin" />
+                : <HelpCircle size={13} />}
+              Clarify
+            </button>
+
+            {/* Generate button */}
+            <button
+              onClick={handleGenerate}
+              disabled={busy || !prompt.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+            >
+              {isGenerating
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Sparkles size={15} />}
+              Generate
+            </button>
+          </div>
         </div>
 
-        {!isGenerating && (
+        {!busy && (
           <div className="flex gap-2 flex-wrap">
             {EXAMPLES.map((ex, i) => (
               <button
                 key={i}
-                onClick={() => setPrompt(ex)}
+                onClick={() => { setPrompt(ex); setClarifyQuestions([]); setClarifyAnswers({}) }}
                 className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
               >
                 <ChevronRight size={10} />
@@ -108,6 +176,16 @@ export function PromptForm() {
           </div>
         )}
       </div>
+
+      {/* Clarification panel — rendered below the prompt bar */}
+      {clarifyQuestions.length > 0 && (
+        <ClarificationPanel
+          questions={clarifyQuestions}
+          answers={clarifyAnswers}
+          onAnswer={(id, val) => setClarifyAnswers(prev => ({ ...prev, [id]: val }))}
+          onDismiss={() => { setClarifyQuestions([]); setClarifyAnswers({}) }}
+        />
+      )}
     </>
   )
 }

@@ -137,6 +137,58 @@ Respond with this exact JSON shape:
   }]
 }`
 
+const CLARIFY_SYSTEM = `You are myhouse.ai. Analyze the user's house description prompt and decide if key details are missing.
+Return 0–3 clarifying questions ONLY for genuinely missing info. If the prompt is already detailed, return an empty array.
+Respond with ONLY valid JSON — no markdown, no code fences.
+
+Question types:
+- "select": provide 4–6 options array
+- "text": free-form answer with a placeholder
+
+Focus on: bedroom/bathroom count, architectural style, lot size, must-have features, budget tier.
+Never ask about things already mentioned in the prompt.
+
+Respond with this exact JSON shape:
+{
+  "needsClarification": boolean,
+  "questions": [{
+    "id": string,
+    "question": string,
+    "type": "select"|"text",
+    "options": string[]|null,
+    "placeholder": string|null
+  }]
+}`
+
+export interface ClarifyQuestion {
+  id: string
+  question: string
+  type: 'select' | 'text'
+  options: string[] | null
+  placeholder: string | null
+}
+
+export interface ClarifyResponse {
+  needsClarification: boolean
+  questions: ClarifyQuestion[]
+}
+
+export async function clarifyPrompt(
+  prompt: string,
+  apiKey: string,
+): Promise<ClarifyResponse> {
+  const client = getClient(apiKey)
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    system: CLARIFY_SYSTEM,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const text = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+  return JSON.parse(clean) as ClarifyResponse
+}
+
 type ChunkCallback = (chunk: string) => void
 
 async function streamCall<T>(
