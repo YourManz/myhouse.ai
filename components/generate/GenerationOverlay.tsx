@@ -52,8 +52,10 @@ export function GenerationOverlay({ step, streamingText }: GenerationOverlayProp
   useEffect(() => {
     if (step !== 'idle' && step !== 'done') {
       setVisible(true)
-    } else if (step === 'done') {
-      const t = setTimeout(() => setVisible(false), 800)
+    } else {
+      // step is 'done' or 'idle' — hide with a brief delay for 'done', immediately for 'idle'
+      const delay = step === 'done' ? 800 : 0
+      const t = setTimeout(() => setVisible(false), delay)
       return () => clearTimeout(t)
     }
   }, [step])
