@@ -137,23 +137,56 @@ Respond with this exact JSON shape:
   }]
 }`
 
-export async function generateFloorPlan(prompt: string, apiKey: string): Promise<AIFloorPlanResponse> {
+type ChunkCallback = (chunk: string) => void
+
+async function streamCall<T>(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  onChunk?: ChunkCallback,
+): Promise<T> {
+  if (onChunk) {
+    const stream = client.messages.stream({ ...params, stream: true } as Anthropic.MessageStreamParams)
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta.type === 'text_delta'
+      ) {
+        onChunk(event.delta.text)
+      }
+    }
+    const msg = await stream.finalMessage()
+    const text = msg.content[0].type === 'text' ? msg.content[0].text : ''
+    const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+    return JSON.parse(clean) as T
+  } else {
+    const message = await client.messages.create(params)
+    const text = message.content[0].type === 'text' ? message.content[0].text : ''
+    const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+    return JSON.parse(clean) as T
+  }
+}
+
+export async function generateFloorPlan(
+  prompt: string,
+  apiKey: string,
+  onChunk?: ChunkCallback,
+): Promise<AIFloorPlanResponse> {
   const client = getClient(apiKey)
-  const message = await client.messages.create({
+  return streamCall<AIFloorPlanResponse>(client, {
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: FLOOR_PLAN_SYSTEM,
     messages: [{ role: 'user', content: prompt }],
-  })
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  // Strip any accidental markdown fences
-  const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-  return JSON.parse(clean) as AIFloorPlanResponse
+  }, onChunk)
 }
 
-export async function extract3DSpec(floorPlan: FloorPlan, apiKey: string): Promise<ThreeDSpec> {
+export async function extract3DSpec(
+  floorPlan: FloorPlan,
+  apiKey: string,
+  onChunk?: ChunkCallback,
+): Promise<ThreeDSpec> {
   const client = getClient(apiKey)
-  const message = await client.messages.create({
+  return streamCall<ThreeDSpec>(client, {
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: THREE_D_SPEC_SYSTEM,
@@ -163,15 +196,16 @@ export async function extract3DSpec(floorPlan: FloorPlan, apiKey: string): Promi
 Original prompt: ${floorPlan.prompt ?? ''}
 Floors: ${JSON.stringify(floorPlan.floors.map(f => ({ level: f.level, label: f.label, rooms: f.rooms.map(r => ({ id: r.id, type: r.type, label: r.label })) })), null, 2)}`,
     }],
-  })
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-  return JSON.parse(clean) as ThreeDSpec
+  }, onChunk)
 }
 
-export async function getMaterialPalette(floorPlan: FloorPlan, apiKey: string): Promise<MaterialPalette> {
+export async function getMaterialPalette(
+  floorPlan: FloorPlan,
+  apiKey: string,
+  onChunk?: ChunkCallback,
+): Promise<MaterialPalette> {
   const client = getClient(apiKey)
-  const message = await client.messages.create({
+  return streamCall<MaterialPalette>(client, {
     model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: MATERIALS_SYSTEM,
@@ -181,8 +215,5 @@ export async function getMaterialPalette(floorPlan: FloorPlan, apiKey: string): 
 Room types: ${[...new Set(floorPlan.floors.flatMap(f => f.rooms.map(r => r.type)))].join(', ')}
 Roof type: ${floorPlan.threeDSpec?.roof.type ?? 'unknown'}`,
     }],
-  })
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  const clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-  return JSON.parse(clean) as MaterialPalette
+  }, onChunk)
 }
